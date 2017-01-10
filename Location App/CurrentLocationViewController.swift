@@ -20,11 +20,14 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
     
     var updatingLocation = false
     var lastLocationError: Error?
+    let locationManager = CLLocationManager()
+    var location: CLLocation?
     
     override func viewDidLoad() {
         super.viewDidLoad()
         // Do any additional setup after loading the view, typically from a nib.
-        updateLabels(location: nil)
+        updateLabels()
+        configureGetButton()
     }
 
     override func didReceiveMemoryWarning() {
@@ -34,7 +37,6 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
     
 
     @IBAction func getLocation() {
-        let locationManager = CLLocationManager()
         // request getting location permission
         let authorizeStatus = CLLocationManager.authorizationStatus()
         if authorizeStatus == .notDetermined {
@@ -49,12 +51,14 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
         }
         print("location service: \(CLLocationManager.locationServicesEnabled())")
         print("authorize status: \(CLLocationManager.authorizationStatus().rawValue)")
-            
-        // start update location
-        locationManager.delegate = self
-        locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
-        locationManager.startUpdatingLocation()
-
+        
+        if updatingLocation {
+            stopLocationManager()
+        } else {
+            location = nil
+            lastLocationError = nil
+            startLocationManager()
+        }
     }
 
     func showLocationServicesDeniedAlert() {
@@ -69,25 +73,21 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
         present(alert, animated: true, completion: nil)
     }
     
-    func updateLabels(location: CLLocation?) {
+    func updateLabels() {
         if let location = location {
-            let eventDate = location.timestamp
-            let howRecent = eventDate.timeIntervalSinceNow
-            if abs(howRecent) < 15.0 {
-                print(String(format: "latitude %+.6f, longitude %+.6f\n", location.coordinate.latitude, location.coordinate.longitude))
-                latitudeLabel.text = String(format: "%.8f", location.coordinate.latitude)
-                longitudeLabel.text = String(format: "%.8f", location.coordinate.longitude)
-            }
+            print(String(format: "latitude %+.6f, longitude %+.6f\n", location.coordinate.latitude, location.coordinate.longitude))
+            latitudeLabel.text = String(format: "%.8f", location.coordinate.latitude)
+            longitudeLabel.text = String(format: "%.8f", location.coordinate.longitude)
             tagButton.isHidden = false
             messageLabel.text = ""
         } else {
             latitudeLabel.text = ""
             longitudeLabel.text = ""
             addressLabel.text = ""
-            tagButton.isHidden = false
-            messageLabel.text = "Tap 'Get my location' to start"
+            tagButton.isHidden = true
             
             let statuseMessage: String
+            // cast to NSError to heve NSError's property
             if let error = lastLocationError as? NSError {
                 if error.domain == kCLErrorDomain && error.code == CLError.denied.rawValue {
                     statuseMessage = "Location Services Disabled"
@@ -97,11 +97,32 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
             } else if !CLLocationManager.locationServicesEnabled() {
                 statuseMessage = "Location Services Disabled"
             } else if updatingLocation {
-                
+                statuseMessage = "Searching..."
+            } else {
+                statuseMessage = "Tap 'Get My Location' to Start"
             }
+            
+            messageLabel.text = statuseMessage
         }
     }
     
+    func configureGetButton() {
+        if updatingLocation {
+            getButton.setTitle("Stop", for: .normal)
+        } else {
+            getButton.setTitle("Get My Location", for: .normal)
+        }
+    }
+    
+    func startLocationManager() {
+        if CLLocationManager.locationServicesEnabled() {
+            // start update location
+            locationManager.delegate = self
+            locationManager.desiredAccuracy = kCLLocationAccuracyNearestTenMeters
+            locationManager.startUpdatingLocation()
+            updatingLocation = true
+        }
+    }
     func stopLocationManager() {
         if updatingLocation {
             locationManager.stopUpdatingLocation()
@@ -119,12 +140,30 @@ class CurrentLocationViewController: UIViewController, CLLocationManagerDelegate
         lastLocationError = error
         stopLocationManager()
         // here will update the label using error information
-        updateLabels(location: nil)
+        updateLabels()
+        configureGetButton()
     }
     
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        let location = locations.last!
-        updateLabels(location: location)
+        let newLocation = locations.last!
+        let howRecent = newLocation.timestamp.timeIntervalSinceNow
+        if howRecent < -5 {
+            return
+        }
+        if newLocation.horizontalAccuracy < 0 {
+            return
+        }
+        if location == nil || location!.horizontalAccuracy > newLocation.horizontalAccuracy {
+            lastLocationError = nil
+            location = newLocation
+            updateLabels()
+            
+            if newLocation.horizontalAccuracy < locationManager.desiredAccuracy {
+                print("*** we are done")
+                stopLocationManager()
+                configureGetButton()
+            }
+        }
     }
 }
 
